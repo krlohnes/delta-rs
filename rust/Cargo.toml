@@ -53,10 +53,10 @@ rusoto_dynamodb = { version = "0.47", default-features = false, optional = true 
 rusoto_glue = { version = "0.47", default-features = false, optional = true }
 
 # Datafusion
-datafusion = { git="https://github.com/krlohnes/arrow-datafusion.git", brain="main", optional = true }
-datafusion-expr = { version = "18", optional = true }
-datafusion-common = { version = "18", optional = true }
-datafusion-proto = { version = "18", optional = true }
+datafusion = { git="https://github.com/krlohnes/arrow-datafusion.git", branch="main", optional = true }
+datafusion-expr = { git="https://github.com/krlohnes/arrow-datafusion.git", branch="main", optional = true }
+datafusion-common = { git="https://github.com/krlohnes/arrow-datafusion.git", branch="main", optional = true }
+datafusion-proto = { git="https://github.com/krlohnes/arrow-datafusion.git", branch="main", optional = true }
 
 # NOTE dependencies only for integration tests
 fs_extra = { version = "1.2.0", optional = true }
