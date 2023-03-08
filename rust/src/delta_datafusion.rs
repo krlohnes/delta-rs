@@ -41,13 +41,15 @@ use datafusion::execution::context::{SessionContext, SessionState, TaskContext};
 use datafusion::execution::runtime_env::RuntimeEnv;
 use datafusion::execution::FunctionRegistry;
 use datafusion::optimizer::utils::conjunction;
-use datafusion::physical_expr::PhysicalSortExpr;
+use datafusion::physical_expr::{create_physical_expr, PhysicalSortExpr};
 use datafusion::physical_optimizer::pruning::{PruningPredicate, PruningStatistics};
 use datafusion::physical_plan::file_format::{partition_type_wrap, FileScanConfig};
+use datafusion::physical_plan::PhysicalExpr;
 use datafusion::physical_plan::{
     ColumnStatistics, ExecutionPlan, Partitioning, SendableRecordBatchStream, Statistics,
 };
 use datafusion_common::scalar::ScalarValue;
+use datafusion_common::ToDFSchema;
 use datafusion_common::{Column, DataFusionError, Result as DataFusionResult};
 use datafusion_expr::logical_plan::CreateExternalTable;
 use datafusion_expr::{Expr, Extension, LogicalPlan, TableProviderFilterPushDown};
@@ -361,10 +363,22 @@ impl TableProvider for DeltaTable {
         // and partitions are somewhat evenly distributed, probably not the worst choice ...
         // However we may want to do some additional balancing in case we are far off from the above.
         let mut file_groups: HashMap<Vec<ScalarValue>, Vec<PartitionedFile>> = HashMap::new();
+        let mut maybe_physical = None;
         if let Some(Some(predicate)) =
             (!filters.is_empty()).then_some(conjunction(filters.iter().cloned()))
         {
-            let pruning_predicate = PruningPredicate::try_new(predicate, schema.clone())?;
+            let aschema = <ArrowSchema as TryFrom<&schema::Schema>>::try_from(
+                DeltaTable::schema(self).unwrap(),
+            )?;
+            let table_df_schema = aschema.clone().to_dfschema()?;
+            let physical = create_physical_expr(
+                &predicate,
+                &table_df_schema,
+                &aschema,
+                session.execution_props(),
+            )?;
+            maybe_physical = Some(physical.clone());
+            let pruning_predicate = PruningPredicate::try_new(physical, schema.clone())?;
             let files_to_prune = pruning_predicate.prune(self)?;
             self.get_state()
                 .files()
@@ -398,7 +412,6 @@ impl TableProvider for DeltaTable {
                 .cloned()
                 .collect(),
         ));
-
         let parquet_scan = ParquetFormat::new()
             .create_physical_plan(
                 session,
@@ -421,7 +434,7 @@ impl TableProvider for DeltaTable {
                     output_ordering: None,
                     infinite_source: false,
                 },
-                filters,
+                maybe_physical.as_ref(),
             )
             .await?;
 
@@ -1052,7 +1065,7 @@ mod tests {
         let file = partitioned_file_from_action(&action, &schema);
         let ref_file = PartitionedFile {
             object_meta: object_store::ObjectMeta {
-                location: Path::from("year=2015/month=1/part-00000-4dcb50d3-d017-450c-9df7-a7257dbd3c5d-c000.snappy.parquet".to_string()), 
+                location: Path::from("year=2015/month=1/part-00000-4dcb50d3-d017-450c-9df7-a7257dbd3c5d-c000.snappy.parquet".to_string()),
                 last_modified: Utc.timestamp_millis_opt(1660497727833).unwrap(),
                 size: 10644,
             },
